@@ -1,0 +1,8 @@
+joblib>=0.16.0
+numpy>=1.18.5
+scikit-learn>=0.23.1
+statsmodels>=0.11.1
+awscli>=1.18.109
+boto3>=1.14.32
+s3fs>=0.4.2
+sagemaker>=2.3.0
