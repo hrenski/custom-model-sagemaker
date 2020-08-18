@@ -182,15 +182,25 @@ if __name__ =='__main__':
 
 
     # Data, model, and output directories
-    parser.add_argument('--output-data-dir', type = str, default = os.environ.get('SM_OUTPUT_DATA_DIR'))
-    parser.add_argument('--model-dir', type = str, default = os.environ.get('SM_MODEL_DIR'))
-    parser.add_argument('--train', type = str, default = os.environ.get('SM_CHANNEL_TRAIN'))
+    parser.add_argument('--output-data-dir', 
+                        type = str, 
+                        default = os.environ.get('SM_OUTPUT_DATA_DIR'))
+    parser.add_argument('--model-dir', 
+                        type = str, 
+                        default = os.environ.get('SM_MODEL_DIR'))
+    parser.add_argument('--train', 
+                        type = str, 
+                        default = os.environ.get('SM_CHANNEL_TRAIN'))
     parser.add_argument('--train-file', type = str)
-    parser.add_argument('--test', type = str, default = os.environ.get('SM_CHANNEL_TEST'))
+    parser.add_argument('--test', 
+                        type = str, 
+                        default = os.environ.get('SM_CHANNEL_TEST'))
     parser.add_argument('--test-file', type = str, default = None)
     
     for argument, default_value in gam_dict.items():
-        parser.add_argument(f'--{argument}', type = type(default_value), default = default_value)
+        parser.add_argument(f'--{argument}', 
+                            type = type(default_value),
+                            default = default_value)
 
         
     print('reading arguments')
@@ -200,7 +210,8 @@ if __name__ =='__main__':
     
     
     print('setting parameters')
-    gam_dict.update({key: value for key, value in vars(args).items() if key in gam_dict and value is not None})
+    gam_dict.update({key: value for key, value in vars(args).items()\
+                    if key in gam_dict and value is not None})
     gam.set_params(**gam_dict)
     
     print(gam)
@@ -262,7 +273,7 @@ def predict_fn(input_object, model):
 
 Note that if we wanted to be able to use difference serialization/deserialization techniques with our model within Sagemakker, we could also define ```input_fn``` and ```output_fn```. But we will make use of the default implementations which serializer/deserializer numpy arrays.
 
-##### Build and Push the container image to Amazon Elastic Container Registry (ECR)
+### Build and Push the container image to Amazon Elastic Container Registry (ECR)
 
 Now that we have all the ingredients for our container, we can build it and push it to ECR. We do this by 
 
@@ -274,7 +285,7 @@ Now that we have all the ingredients for our container, we can build it and push
 
 Once you have done this, you can go to your AWS Console, nagivate to ECR, and make note of your model images ARN
 
-![gauss3 data](images/gauss3.png)
+![gauss3 data](images/ecr.png)
 
 ### Training and Deploying the Custom Model
 
@@ -316,6 +327,141 @@ seed = 42
 rand = np.random.RandomState(seed)
 
 local_mode = False # activate to use local mode
+
+with open("config.json") as f:
+    configs = json.load(f)
+    
+default_bucket = configs["default_bucket"] #put your bucket name here
+role = configs["role_arn"] # put your sagemaker role arn here
+
+boto_session = boto3.Session()
+   
+if local_mode:
+    sagemaker_session = LocalSession(boto_session = boto_session)
+    sagemaker_session._default_bucket = default_bucket
+else:
+    sagemaker_session = sagemaker.Session(
+        boto_session = boto_session,
+        default_bucket = default_bucket
+    )
+
+ecr_image = configs["image_arn"] #put the image uri from ECR here
+
+prefix = "modeling/sagemaker"
+
+data_name = f"gauss3"
+test_name = "gam-demo"    
 ```
 
-### Conclusions and Helpful Tips
+Note that I'm using a configs file to store my S3 bucket name, sagemaker role, and training image URI, but you can also set these directly. Next we define two helpr functions. I also include logic to train and deploy the model locally or on Sagemaker instances.
+
+```python
+def get_s3fs():
+    return s3fs.S3FileSystem(key = boto_session.get_credentials().access_key,
+                             secret = boto_session.get_credentials().secret_key,
+                             token = boto_session.get_credentials().token)
+
+def plot_and_clear():
+    plt.show()
+    plt.clf()
+    plt.cla()
+    plt.close()
+```
+
+We can retrieve the Gauss data using the requests module and apply a train-test-split.
+
+```python
+url = "https://www.itl.nist.gov/div898/strd/nls/data/LINKS/DATA/Gauss3.dat"
+
+r = requests.get(url)
+
+y, x = np.loadtxt(
+    io.StringIO(r.text[r.text.index("Data:   y          x"):]), 
+    skiprows=1, unpack=True
+)
+
+x = x.reshape(-1, 1)
+
+X_train, X_test, y_train, y_test = train_test_split(
+    x, y, test_size = 0.25, 
+    random_state = rand
+)
+```
+
+After writing the training data to our S3 bucket,
+
+```python
+file_fn = f"{default_bucket}/{prefix}/{data_name}/train/data.csv"
+file_path = f"s3://{file_fn}"
+
+s3 = get_s3fs()
+with s3.open(file_fn, 'wb') as f:
+    np.savetxt(f, np.c_[X_train, y_train], delimiter = ',')
+```
+
+we can train our model.
+
+
+```python
+hyperparameters = {
+    "train-file": "data.csv",
+    "df": "20"
+}
+
+data_channels = {
+    "train": file_path
+}
+
+estimator = Estimator(
+    role = role,
+    sagemaker_session = sagemaker_session,
+    instance_count = 1,
+    instance_type = "local" if local_mode else "ml.m5.large",
+    image_uri = ecr_image,
+    base_job_name = f'{data_name}-{test_name}',
+    hyperparameters = hyperparameters,
+    output_path = f"s3://{default_bucket}/{prefix}/{data_name}/model"
+)
+
+estimator.fit(data_channels, wait = True, logs = "None")
+job_name = estimator.latest_training_job.name
+print(job_name)
+```
+
+Once the model is trained, we can deploy it to make real-time inferences.
+
+```python
+np_serialize = NumpySerializer()
+np_deserialize = NumpyDeserializer()
+
+predictor = estimator.deploy(
+    initial_instance_count = 1,
+    instance_type = "local" if local_mode else "ml.t2.medium",
+    serializer = np_serialize,
+    deserializer = np_deserialize
+)
+```
+
+Now let's get model predictions on the training and testing data and compare against the acutal data.
+
+```python
+y_hat_train = predictor.predict(X_train)
+y_hat_test = predictor.predict(X_test)
+```
+
+![gauss3 data](images/gauss3_fitted.png)
+
+We can see that the GAM found a smooth representation which captures the non-linearity of the data.
+
+Be sure to delete the model endpoint when you are done testing the model.
+
+```python
+predictor.delete_endpoint()
+predictor.delete_model()
+```
+
+### Conclusion
+
+We have outlined the process of creating our own container image in Sagemaker and showed how it can be used to train and deploy a custom machine learning model. Hopefully this has been helpful and will serve as a useful reference.
+
+*Note:* If you have trouble during this process, be sure to check the Cloudwatch log groups for your Sagemaker building, training, and deployment instances. They are your best friend for finding and resolving issues!
