@@ -1,7 +1,7 @@
 # Creating and Deploying a Custom Model in Sagemaker
 David Hren
 
-In this blog, we will give an example of defining machine learning model in Python and then deploying it using Amazon Sagemaker. I have made a public repository on [GitHub](https://github.com/hrenski/custom-model-sagemaker) so you can follow along on some of the details and for reference.
+In this blog, we will give an example of defining machine learning model in Python and then deploying it using Amazon Sagemaker. I have made a public repository on [GitHub](https://github.com/hrenski/custom-model-sagemaker) so you can follow along on some of the details and for reference. AWS also maintains an [extension collection of examples](https://github.com/awslabs/amazon-sagemaker-examples) that you can use for reference.
 
 ### Overview of Sagemaker Models
 
@@ -41,16 +41,239 @@ Here we will outline the basic steps involved in creating and deploying a custom
 
 1. Define the logic of the machine learning model
 2. Define the model image
+3. Push the container image to Amazon Elastic Container REgistry (ECR)
 3. Train and deploy the model image
+
+As an overview, the entire structure of our custom model will like something like this.
+
+```
+.
+├── container
+│   ├── build_and_push.sh
+│   ├── code
+│   │   ├── model_logic.py
+│   │   └── requirements.txt
+│   ├── Dockerfile
+│   ├── gam_model
+│   │   ├── gam_model
+│   │   │   ├── __init__.py
+│   │   │   └── _models.py
+│   │   ├── gen_pack.sh
+│   │   └── setup.py
+```
+
+The directory ```gam_model``` contains the core logic of the custom model. The directory ```code``` contains the code that instructs our container on how to use the model within Sagemaker (model training, saving, loading, and inferencing). Of the remaining files, ```DockerFile``` defines the docker image, and ```build_and_push.sh``` is a helper bash script (that I found [here](https://github.com/awslabs/amazon-sagemaker-examples/blob/master/advanced_functionality/pytorch_extending_our_containers/container/build_and_push.sh)) to push our container to ECR so we can use it within Sagemaker. We will look at each piece in more detail as we go through each step.
 
 ### Defining the Logic of the Model
 
 For our custom machine learning model, we will be using a generalized additive model (or GAM). GAMs are a powerful, yet interpretable, algorithm that can detect non-linear relationships (possibly interactions as well). If you aren't familiar with GAMs, Kim Larson has a very helpful [blog](https://multithreaded.stitchfix.com/blog/2015/07/30/gam/) introducing them; Micheal Clark also has a nice [description](https://m-clark.github.io/generalized-additive-models/preface.html). Also note, there is a very nice python package implementing GAMs with a lot of nice features: [pyGAM](https://pygam.readthedocs.io/en/latest/), but for our purpose, we will make use of the [statsmodels](https://www.statsmodels.org/stable/gam.html) package.
 
-When creating a container with a custom model, I generally like to put the actual implementation of the machine learning algorithm within its own Python package. This allows me to compartmentalize the logic of the model with the logic needed to run it in Sagemaker. In this case, our package will be relatively simple, simply wrapping the statsmodel GAM implementation into a scikit-learn like model.
+When creating a container with a custom model, I generally like to put the actual implementation of the machine learning algorithm within its own Python package. This allows me to compartmentalize the logic of the model with the logic needed to run it in Sagemaker and to modify and test each part independently. I can also then reuse the model in other environments as well.
+
+We will call our package ```gam_model```; I'm including it within our container definition directory just to make it simplier to include it within the container we will define shortly.
+
+In this case, our package will look like:
+
+```
+.
+├── gam_model
+│   ├── __init__.py
+│   └── _models.py
+├── gen_pack.sh
+└── setup.py
+```
+
+This is a fairly simple Python module which wraps the statsmodel GAM implementation into a scikit-learn like model; the contents of ```_models.py``` is
+
+```python
+import numpy as np
+from sklearn.base import BaseEstimator, RegressorMixin
+from sklearn.utils.validation import check_is_fitted
+from sklearn.utils import check_array
+from statsmodels.gam.api import GLMGam, BSplines
+
+class GAMRegressor(BaseEstimator, RegressorMixin):
+    def __init__(self, df = 15, alpha = 1.0, degree = 3):
+        self.df = df
+        self.alpha = alpha
+        self.degree = degree
+    
+    def fit(self, X, y):
+        X, y = self._validate_data(X, y, y_numeric=True)
+        
+        self.spline = BSplines(
+            X, df = [self.df] * self.n_features_in_, 
+            degree = [self.degree] * self.n_features_in_, 
+            include_intercept = False
+        )
+        
+        gam = GLMGam(
+            y, exog = np.ones(X.shape[0]), 
+            smoother = self.spline, alpha = self.alpha
+        )
+        self.gam_predictor = gam.fit()
+        
+        return self
+
+    def predict(self, X):
+        check_is_fitted(self, attributes = "gam_predictor")
+        X = check_array(X)
+        
+        return self.gam_predictor.predict(
+            exog = np.ones(X.shape[0]), 
+            exog_smooth = X
+        )
+    
+    @property
+    def summary(self):
+        return self.gam_predictor.summary() if \
+               hasattr(self, "gam_predictor") else None
+```
+
+```gen_pack.sh``` is just a little helper script to rebuilds and installs the package every time I need to modify it. The other components of the package are pretty standard and can found on the corresponding [GitHub page](https://github.com/hrenski/custom-model-sagemaker).
 
 ### Defining the Model Image
 
- 
+Now that we have our model implemented and put into a package, the next step is to define the Docker container image that will house our model within the AWS ecosystem. To do this, we first write our ```DockerFile```:
+
+```dockerfile
+ARG REGION=us-east-1
+
+FROM 683313688378.dkr.ecr.us-east-1.amazonaws.com/sagemaker-scikit-learn:0.23-1-cpu-py3
+
+ENV PATH="/opt/ml/code:${PATH}"
+
+COPY /code /opt/ml/code
+COPY gam_model/dist/gam_model-0.0.1-py3-none-any.whl /opt/gam_model-0.0.1-py3-none-any.whl
+
+RUN pip install -r /opt/ml/code/requirements.txt /opt/gam_model-0.0.1-py3-none-any.whl
+
+ENV SAGEMAKER_PROGRAM model_logic.py
+```
+
+Here I'm using one of the container images that AWS has created and maintins for the the scikit-learn framework. You can find the current framework containers in the Sagemaker documentation pages ([here](https://docs.aws.amazon.com/sagemaker/latest/dg/pre-built-containers-frameworks-deep-learning.html) and [here](https://docs.aws.amazon.com/sagemaker/latest/dg/pre-built-docker-containers-frameworks.html)). By extending their container, I can take advantage of everything that they have already done to set it up and just worry about including my additional code and features (we'll review this more shortly). I then copy in the wheel file of the gam_model package and install it as well as some other dependencies. Lastly, I set the Python file, ```model_logic.py``` as my entry point for the container.
+
+Since I am extending one of AWS's framework containers, I need to make sure that my instructions for the logic the container should run meets the design requirements laid out in the [sagemaker-python-sdk documentation](https://sagemaker.readthedocs.io/en/stable/frameworks/sklearn/using_sklearn.html). You can read more about the general Sagemker contianers requirements in the [Sagemaker documentation page](https://sagemaker.readthedocs.io/en/stable/frameworks/sklearn/using_sklearn.html) as well as at the [sagemaker-containers page](https://github.com/aws/sagemaker-containers).
+
+In our case, the ```code``` directory looks like
+
+```
+├── model_logic.py
+└── requirements.txt
+```
+
+```model_logic.py``` contains the instructions on how I want the container to train, load, and serve the model. The training portion looks like
+
+```python
+import argparse
+import os
+import json
+import pandas as pd
+import numpy as np
+import joblib
+from gam_model import GAMRegressor
+
+if __name__ =='__main__':
+
+    print('initializing')
+    parser = argparse.ArgumentParser()
+    gam = GAMRegressor()
+    gam_dict = gam.get_params()
+
+
+    # Data, model, and output directories
+    parser.add_argument('--output-data-dir', type = str, default = os.environ.get('SM_OUTPUT_DATA_DIR'))
+    parser.add_argument('--model-dir', type = str, default = os.environ.get('SM_MODEL_DIR'))
+    parser.add_argument('--train', type = str, default = os.environ.get('SM_CHANNEL_TRAIN'))
+    parser.add_argument('--train-file', type = str)
+    parser.add_argument('--test', type = str, default = os.environ.get('SM_CHANNEL_TEST'))
+    parser.add_argument('--test-file', type = str, default = None)
+    
+    for argument, default_value in gam_dict.items():
+        parser.add_argument(f'--{argument}', type = type(default_value), default = default_value)
+
+        
+    print('reading arguments')
+    args, _ = parser.parse_known_args()
+
+    print(args)
+    
+    
+    print('setting parameters')
+    gam_dict.update({key: value for key, value in vars(args).items() if key in gam_dict and value is not None})
+    gam.set_params(**gam_dict)
+    
+    print(gam)
+
+    
+    print('reading training data') 
+    # assume there's no headers and the target is the last column
+    data = np.loadtxt(os.path.join(args.train, args.train_file), delimiter = ',')
+    X = data[:, :-1]
+    y = data[:, -1]
+    
+    print("X shape:", X.shape)
+    print("y shape:", y.shape)
+
+    if args.test_file is not None:
+        print('reading training data') 
+        # assume there's no headers and the target is the last column
+        data = np.loadtxt(os.path.join(args.test, args.test_file), delimiter = ',')
+        X_test = data[:, :-1]
+        y_test = data[:, -1]
+
+        print("X_test shape:", X_test.shape)
+        print("y_test shape:", y_test.shape)
+    else:
+        X_test = None
+        y_test = None
+    
+    
+    print('fitting model') 
+    gam.fit(X, y)
+    
+    print("R2 (train):", gam.score(X, y))
+    
+    if X_test is not None:
+        print("R2 (test):", gam.score(X_test, y_test))
+    
+
+    print('saving model') 
+    path = os.path.join(args.model_dir, "model.joblib")
+    print(f"saving to {path}")
+    joblib.dump(gam, path)
+
+```
+
+Loading the model is as simple as
+
+```python
+def model_fn(model_dir):
+    model = joblib.load(os.path.join(model_dir, "model.joblib"))
+    return model
+```
+
+and using the model to make predictions is
+
+```python
+def predict_fn(input_object, model):
+    return model.predict(input_object)
+```
+
+Note that if we wanted to be able to use difference serialization/deserialization techniques with our model within Sagemakker, we could also define ```input_fn``` and ```output_fn```. But we will make use of the default implementations which serializer/deserializer numpy arrays.
+
+Now that we have all the ingredients for our container, we can build it and push it to ECR. We do this by 
+
+```
+./build_and_push.sh gam-model
+```
+
+**Note:** I have the hard coded the region in both my ```DockerFile``` and in ```build_and_push.sh``` to pull from ```us-east-1 (account id 683313688378)``` you can adjust this to another region by referencing the [doc page](https://docs.aws.amazon.com/sagemaker/latest/dg/pre-built-docker-containers-frameworks.html).
+
 
 ### Training and Deploying the Custom Model
+
+Now that we have defined the 
+
+
+### Conclusions and Helpful Tips

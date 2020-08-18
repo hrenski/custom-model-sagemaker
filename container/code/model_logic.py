@@ -78,31 +78,10 @@ if __name__ =='__main__':
     print(f"saving to {path}")
     joblib.dump(gam, path)
 
-    
+
 def model_fn(model_dir):
     model = joblib.load(os.path.join(model_dir, "model.joblib"))
     return model
     
 def predict_fn(input_object, model):
     return model.predict(input_object)
-    
-"""
-
-def input_fn(request_body, request_content_type):
-    if request_content_type not in ["application/json"]:
-        raise RuntimeError("Input request content type ({}) is not supported.".format(request_content_type))
-        
-    if request_content_type == "application/json":
-        data = json.loads(request_body)
-        
-    return data
-
-def output_fn(prediction, content_type):
-    if content_type not in ["application/json"]:
-        raise RuntimeError("Response content type ({}) is not supported.".format(request_content_type))
-        
-    if content_type == "application/json":
-        response_body = json.dumps(prediction).encode()
-        
-    return response_body 
-"""    
