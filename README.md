@@ -13,7 +13,7 @@ SageMaker uses Docker containers to compartmentalize ML algorithms; this contain
 
 These modes offer various degrees of both complexity and ease of use. 
 
-**Image here**
+![AWS Model Modes](images/modes.png)
 
 First, we will give a brief rundown of each mode, but we will focus showing a step-by-step process to use container mode to deploy a machine learning model. If you are new to using Sagemaker, you can find a series of [deep dive videos](https://www.youtube.com/playlist?list=PLhr1KZpdzukcOr_6j_zmSrvYnLUtgqsZz) produced by AWS helpful. 
 
