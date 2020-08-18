@@ -151,9 +151,9 @@ RUN pip install -r /opt/ml/code/requirements.txt /opt/gam_model-0.0.1-py3-none-a
 ENV SAGEMAKER_PROGRAM model_logic.py
 ```
 
-Here I'm using one of the container images that AWS has created and maintins for the the scikit-learn framework. You can find the current framework containers in the Sagemaker documentation pages ([here](https://docs.aws.amazon.com/sagemaker/latest/dg/pre-built-containers-frameworks-deep-learning.html) and [here](https://docs.aws.amazon.com/sagemaker/latest/dg/pre-built-docker-containers-frameworks.html)). By extending their container, I can take advantage of everything that they have already done to set it up and just worry about including my additional code and features (we'll review this more shortly). I then copy in the wheel file of the gam_model package and install it as well as some other dependencies. Lastly, I set the Python file, ```model_logic.py``` as my entry point for the container.
+Here we are using one of the container images that AWS has created and maintins for the the scikit-learn framework. You can find the current framework containers in the Sagemaker documentation pages ([here](https://docs.aws.amazon.com/sagemaker/latest/dg/pre-built-containers-frameworks-deep-learning.html) and [here](https://docs.aws.amazon.com/sagemaker/latest/dg/pre-built-docker-containers-frameworks.html)). By extending their container, we can take advantage of everything that they have already done to set it up and just worry about including our additional code and features (we'll review this more shortly). We then copy in the wheel file of the gam_model package and install it as well as some other dependencies. Lastly, we set the Python file, ```model_logic.py``` as my entry point for the container.
 
-Since I am extending one of AWS's framework containers, I need to make sure that my instructions for the logic the container should run meets the design requirements laid out in the [sagemaker-python-sdk documentation](https://sagemaker.readthedocs.io/en/stable/frameworks/sklearn/using_sklearn.html). You can read more about the general Sagemker contianers requirements in the [Sagemaker documentation page](https://sagemaker.readthedocs.io/en/stable/frameworks/sklearn/using_sklearn.html) as well as at the [sagemaker-containers page](https://github.com/aws/sagemaker-containers).
+Since we are extending one of AWS's framework containers, we need to make sure that my instructions for the logic the container should run meets the design requirements laid out in the [sagemaker-python-sdk documentation](https://sagemaker.readthedocs.io/en/stable/frameworks/sklearn/using_sklearn.html). You can read more about the general Sagemker contianers requirements in the [Sagemaker documentation page](https://sagemaker.readthedocs.io/en/stable/frameworks/sklearn/using_sklearn.html) as well as at the [sagemaker-containers page](https://github.com/aws/sagemaker-containers).
 
 In our case, the ```code``` directory looks like
 
@@ -162,7 +162,7 @@ In our case, the ```code``` directory looks like
 └── requirements.txt
 ```
 
-```requirements.txt``` contains some additional packages we wish to install in the container, and ```model_logic.py``` contains the instructions on how I want the container to train, load, and serve the model. The training portion looks like
+```requirements.txt``` contains some additional packages we wish to install in the container, and ```model_logic.py``` contains the instructions on how we want the container to train, load, and serve the model. The training portion looks like
 
 ```python
 import argparse
