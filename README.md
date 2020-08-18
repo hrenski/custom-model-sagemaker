@@ -283,7 +283,7 @@ Now that we have all the ingredients for our container, we can build it and push
 
 **Note:** I have the hard coded the region in both my ```DockerFile``` and in ```build_and_push.sh``` to pull from ```us-east-1 (account id 683313688378)``` you can adjust this to another region by referencing the [doc page](https://docs.aws.amazon.com/sagemaker/latest/dg/pre-built-docker-containers-frameworks.html).
 
-Once you have done this, you can go to your AWS Console, nagivate to ECR, and make note of your model images ARN
+Once you have done this, you can go to your AWS Console, nagivate to ECR, and make note of your model image's uri
 
 ![gauss3 data](images/ecr.png)
 
