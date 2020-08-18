@@ -41,7 +41,7 @@ Here we will outline the basic steps involved in creating and deploying a custom
 
 1. Define the logic of the machine learning model
 2. Define the model image
-3. Push the container image to Amazon Elastic Container REgistry (ECR)
+3. Build and Push the container image to Amazon Elastic Container Registry (ECR)
 3. Train and deploy the model image
 
 As an overview, the entire structure of our custom model will like something like this.
@@ -162,7 +162,7 @@ In our case, the ```code``` directory looks like
 └── requirements.txt
 ```
 
-```model_logic.py``` contains the instructions on how I want the container to train, load, and serve the model. The training portion looks like
+```requirements.txt``` contains some additional packages we wish to install in the container, and ```model_logic.py``` contains the instructions on how I want the container to train, load, and serve the model. The training portion looks like
 
 ```python
 import argparse
@@ -262,6 +262,8 @@ def predict_fn(input_object, model):
 
 Note that if we wanted to be able to use difference serialization/deserialization techniques with our model within Sagemakker, we could also define ```input_fn``` and ```output_fn```. But we will make use of the default implementations which serializer/deserializer numpy arrays.
 
+##### Build and Push the container image to Amazon Elastic Container Registry (ECR)
+
 Now that we have all the ingredients for our container, we can build it and push it to ECR. We do this by 
 
 ```
@@ -270,10 +272,50 @@ Now that we have all the ingredients for our container, we can build it and push
 
 **Note:** I have the hard coded the region in both my ```DockerFile``` and in ```build_and_push.sh``` to pull from ```us-east-1 (account id 683313688378)``` you can adjust this to another region by referencing the [doc page](https://docs.aws.amazon.com/sagemaker/latest/dg/pre-built-docker-containers-frameworks.html).
 
+Once you have done this, you can go to your AWS Console, nagivate to ECR, and make note of your model images ARN
+
+![gauss3 data](images/gauss3.png)
 
 ### Training and Deploying the Custom Model
 
-Now that we have defined the 
+Now that we have defined our model image and registered with with ECR, we can use Sagemaker to train and deploy our model! You can follow this process referencing the [example.ipynb](https://github.com/hrenski/custom-model-sagemaker/blob/master/example.ipynb) notebook.
 
+For this example, we will use a small relatively simple dataset that will display a GAMs ability to model nonlinear relationships: the [Gauss3](https://www.itl.nist.gov/div898/strd/nls/data/gauss3.shtml) dataset.
+
+![gauss3 data](images/gauss3.png)
+
+We first import the necessary libraries and run some initilization
+
+```python
+import requests
+import sagemaker
+import boto3
+import s3fs
+import json
+import io
+
+import numpy as np
+
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import r2_score
+
+from sagemaker.estimator import Estimator
+from sagemaker.predictor import Predictor
+from sagemaker.serializers import NumpySerializer
+from sagemaker.deserializers import NumpyDeserializer
+from sagemaker.local import LocalSession
+
+from matplotlib import pyplot as plt
+import matplotlib as mpl
+import seaborn as sns
+
+%matplotlib inline
+sns.set()
+
+seed = 42
+rand = np.random.RandomState(seed)
+
+local_mode = False # activate to use local mode
+```
 
 ### Conclusions and Helpful Tips
