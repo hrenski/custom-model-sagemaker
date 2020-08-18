@@ -1,7 +1,7 @@
 # Creating and Deploying a Custom Model in Sagemaker
 David Hren
 
-In this blog, we will give an example of defining machine learning model in Python and then deploying it using Amazon Sagemaker.
+In this blog, we will give an example of defining machine learning model in Python and then deploying it using Amazon Sagemaker. I have made a public repository on [GitHub](https://github.com/hrenski/custom-model-sagemaker) so you can follow along on some of the details and for reference.
 
 ### Overview of Sagemaker Models
 
@@ -31,7 +31,7 @@ Container mode allows you to to use custom logic to define a model and deploy it
 1. Define your custom container by extending one of the existing ones maintained by AWS
 2. Use the [SageMaker Containers Library](https://github.com/aws/sagemaker-training-toolkit) to define your container.
 
-We will focus on using method 1. here, but AWS reall has made every effort to make it as easy as possible to use your own custom logic within Sagemaker.
+We will focus on using method 1. here, but AWS really has made every effort to make it as easy as possible to use your own custom logic within Sagemaker.
 
 After designing you container, you must uploaded it to the AWS Elastic Container Registry (ECR); this is the model image you will point SageMaker to when training or deploying a model.
 
@@ -45,7 +45,9 @@ Here we will outline the basic steps involved in creating and deploying a custom
 
 ### Defining the Logic of the Model
 
- 
+For our custom machine learning model, we will be using a generalized additive model (or GAM). GAMs are a powerful, yet interpretable, algorithm that can detect non-linear relationships (possibly interactions as well). If you aren't familiar with GAMs, Kim Larson has a very helpful [blog](https://multithreaded.stitchfix.com/blog/2015/07/30/gam/) introducing them; Micheal Clark also has a nice [description](https://m-clark.github.io/generalized-additive-models/preface.html). Also note, there is a very nice python package implementing GAMs with a lot of nice features: [pyGAM](https://pygam.readthedocs.io/en/latest/), but for our purpose, we will make use of the [statsmodels](https://www.statsmodels.org/stable/gam.html) package.
+
+When creating a container with a custom model, I generally like to put the actual implementation of the machine learning algorithm within its own Python package. This allows me to compartmentalize the logic of the model with the logic needed to run it in Sagemaker. In this case, our package will be relatively simple, simply wrapping the statsmodel GAM implementation into a scikit-learn like model.
 
 ### Defining the Model Image
 
